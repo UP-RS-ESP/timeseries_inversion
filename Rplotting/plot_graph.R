@@ -1,6 +1,7 @@
 library(ggplot2)
 library(ggraph)
 library(dplyr)
+library(igraph)
 
 setwd("/home/ariane/Documents/Project3/scripts/timeseries_inversion/Rplotting")
 dat <- read.csv("network_example.csv")
