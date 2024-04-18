@@ -1,5 +1,4 @@
 library(ggplot2)
-library(ggraph)
 library(dplyr)
 library(randomcoloR)
 library(ggrepel)
