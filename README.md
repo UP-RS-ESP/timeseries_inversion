@@ -8,7 +8,7 @@ We show a processing example for a basic reconstruction and the effect of differ
 
 The effect of a disconnected network and the addition of indirect connections is described in a this [Jupyter Notebook](./timeseries_inversion_disconnected_networks.ipynb).
 
-Finally, examples how to visualize the networks in form of a [graph](./Rplotting/plot_graph.R) or [correlation matrix](./Rplotting/plot_matrix.R) in R are contained in the [Rplotting](./Rplotting) folder.
+Finally, examples how to visualize the networks in form of a [graph](./Rplotting/plot_graph.R), [correlation matrix](./Rplotting/plot_matrix.R) or [time-series with matrix inset](./Rplotting/matrix_inset.R) in R are contained in the [Rplotting](./Rplotting) folder.
 
 ## Citation
 
