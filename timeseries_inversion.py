@@ -54,22 +54,29 @@ def create_design_matrix_cumulative_displacement(num_pairs, dates0, dates1):
     return A, date_list
 
 
-def solve_matrix_system(A, y, rcond=1e-10, weights = None):
+def solve_matrix_system(A, B, rcond=1e-10, weights = None):
     
-    '''Solve matrix system using least squares'''
+    '''
+    Solve matrix system using least squares. 
+    Args: 
+        A: design matrix
+        B: vector storing pairwise displacement measurements
+    Returns: 
+        ts: inverted time series
+    '''
     
     if weights is not None: 
         weights = np.diag(weights).astype(np.float64)
         A = np.dot(weights, A.astype(np.float64))
-        y = np.dot(weights, y)
+        B = np.dot(weights, B)
 
     num_dates = A.shape[1] + 1
 
-    ts = np.zeros((num_dates, 1), dtype=np.float32) #intialize empty output timeseries
+    ts = np.zeros((num_dates, 1), dtype=np.float32) #intialize empty output time series
 
-    y = y.astype(np.float64)
+    B = B.astype(np.float64)
 
-    X, _, _, _ = np.linalg.lstsq(A.astype(np.float64), y, rcond=rcond)
+    X, _, _, _ = np.linalg.lstsq(A.astype(np.float64), B, rcond=rcond)
     ts[1:, 0] = X.astype(np.float32)[:,0] #first displacement will be 0
 
     return ts[:,0]
