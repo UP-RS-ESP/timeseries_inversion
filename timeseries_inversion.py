@@ -124,9 +124,12 @@ def plot_results(timeseries, original_signal = None):
     Plots data from multiple inversion runs when parameter timeseries is provided as a list of pd dfs.
     '''
     
+    original_signal = original_signal.copy()
+    
     colormap = cm.get_cmap('Dark2')
     if type(timeseries) == list:
-        # rename columns 
+        # rename columns
+        timeseries = [t.copy() for t in timeseries] #make a hard copy to avoid col renaming in orig dfs
         for i in range(len(timeseries)):
             timeseries[i].columns = ["date", f"disp_inversion_{i}"]
         timeseries = reduce(lambda left, right: pd.merge(left, right, on="date"), timeseries)
