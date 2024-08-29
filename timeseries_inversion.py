@@ -4,9 +4,11 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import matplotlib.dates as mdates
 from datetime import datetime
 import networkx as nx
+from functools import reduce
 
 # define neccessary functions
 def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
@@ -114,132 +116,52 @@ def run_inversion(net, weightcol = None):
     return out
 
 
-def find_indirect(direct, full, dispcol = "disp", max_day_diff = 1e6):
-    
-    full  = full[["date0", "date1"]]
-    direct = direct[["date0", "date1", dispcol]]
-    
-    merge = full.merge(direct, how='outer', indicator=True)
-    indirect = merge[merge['_merge'] == 'left_only']
-    indirect = indirect.drop(columns=['_merge'])
-    
-    if len(indirect) + len(direct) != len(full):
-        print(f"Number of direct and indirect matches should sum up to {len(full)}.")
-        return 
-    
-    out = []
-    for i, row in indirect.iterrows():
-        #step 1: find all connections in direct that fully cover that timespan
-        covering = direct[(direct.date0 <= row.date0) & (direct.date1 >= row.date1)].copy()
-        if len(covering)>0:
-            covering["dt"] = covering.date1 - covering.date0
-            rdt = (row.date1-row.date0).days
-            #step 2: find shortest connection -> more likely that displacement can be linearly interpolated
-            dmin = covering["dt"].min()
 
-            if dmin.days-rdt <= max_day_diff:
-                selected = covering[covering["dt"] == dmin].iloc[0] #use the first in case there are multiple options available
-                #step3 when reference displacement is chosen, load dx and dy, calculate how much displacement there was 
-                #per day and use that to estimate how much displacement has taken place over the timespan of the indirect connection in question
-                d_soll = selected[dispcol]
-                
-                row["disp"] = d_soll / dmin.days * rdt
-
-                row["date0_direct"] = selected.date0
-                row["date1_direct"] = selected.date1              
-                
-                out.append(row)
-          
-    out = pd.DataFrame(out)
-    out["connection_type"] = "indirect"
-    direct["connection_type"] = "direct"       
-    direct["date0_direct"] = np.nan
-    direct["date1_direct"] = np.nan 
-
-    out = pd.concat([out, direct])
-
-    return out    
-
-
-def find_indirect_minimum(direct, dispcol = "disp"):
+def plot_results(timeseries, original_signal = None):
     
-    direct = direct[["date0", "date1", dispcol]]
-    direct_old = direct.copy()
+    '''
+    Plot inverted time series and residual to original signal.
+    Plots data from multiple inversion runs when parameter timeseries is provided as a list of pd dfs.
+    '''
+    
+    colormap = cm.get_cmap('Dark2')
+    if type(timeseries) == list:
+        # rename columns 
+        for i in range(len(timeseries)):
+            timeseries[i].columns = ["date", f"disp_inversion_{i}"]
+        timeseries = reduce(lambda left, right: pd.merge(left, right, on="date"), timeseries)
+     
+        colors = [colormap(i) for i in np.arange(0,len(timeseries))]
+    else: 
+        colors = [colormap(0)]
+                                                   
 
-    G = nx.from_pandas_edgelist(direct, 'date0', 'date1')
-    connected_components = list(nx.connected_components(G))
-    #map group id to orig df
-    group_mapping = {node: group_id for group_id, nodes in enumerate(connected_components) for node in nodes}
-    direct['group_id'] = direct['date0'].apply(lambda x: group_mapping[x])
-    
-    nr_groups = len(direct.group_id.unique())
-    group_counts = direct.group_id.value_counts().sort_values().reset_index()
-    group_counts.columns = ["group_id", "count"]
-    
-    attempts = 0
-    indirect = []
-    while (len(group_counts)>1) and (attempts < nr_groups): #continue until there is only one group
-        current = direct.loc[direct.group_id == group_counts.group_id.iloc[0]]
-        other = direct.loc[direct.group_id != group_counts.group_id.iloc[0]]
+    if original_signal is not None:
+        original_signal.date = pd.to_datetime(original_signal.date)
+        original_signal.columns = ["date", "disp_true"]
+        fig, ax = plt.subplots(1,2, figsize = (16, 6))
+    else: 
+        fig, ax = plt.subplots(1,1, figsize = (8, 6))
         
-        top_picks = []
-        for _,conn in current.iterrows(): #search in other groups for suitable matches
-            inside = other.loc[(other.date0 > conn.date0) &(other.date0 < conn.date1)].copy()
-            if len(inside)>0:
-                inside["dt"] =  inside.date0 - conn.date0
-                selected = inside.loc[inside["dt"] == min(inside["dt"])].iloc[0]
-                new_conn = conn.copy()
-                new_conn.date1 = selected.date0
-                new_conn[dispcol] = conn[dispcol] / (conn.date1-conn.date0).days * (new_conn.date1-new_conn.date0).days
-                new_conn["date0_direct"] = conn.date0
-                new_conn["date1_direct"] = conn.date1
-                new_conn.group_id = selected.group_id
-                new_conn["score"] = (selected["dt"].days + (conn.date1 -conn.date0).days)*conn[dispcol] #lowest number will be best connection = shortest direct and indirect
-                top_picks.append(new_conn)
-        top_picks = pd.DataFrame(top_picks)
-        top_pick = top_picks.loc[top_picks["score"] == min(top_picks["score"])].iloc[0]
-        
-        indirect.append(top_pick)
-        attempts += 1
-        direct.loc[direct.group_id == group_counts.group_id.iloc[0], 'group_id'] = top_pick.group_id #merge current to selected group
-        
-        #recalculate group counts
-        group_counts = direct.group_id.value_counts().sort_values().reset_index()
-        group_counts.columns = ["group_id", "count"]
-
-        
-    indirect = pd.DataFrame(indirect)    
-    indirect["connection_type"] = "indirect"
-    direct_old["connection_type"] = "direct"     
-    indirect["noise"] = np.nan
-    indirect = indirect.drop(["score"], axis = 1)
-    direct_old["date0_direct"] = np.nan
-    direct_old["date1_direct"] = np.nan 
-    out = pd.concat([indirect, direct_old])
-
-    return(out)
-
-
-def plot_results(timeseries, signal):
+    timeseries = pd.merge(timeseries, original_signal, on = 'date', how = 'left')
     
-    '''Plot inverted time series and residual to original signal'''
-    
-    signal.date = pd.to_datetime(signal.date)
-    timeseries = pd.merge(timeseries, signal, on = 'date', how = 'left')
-    timeseries.columns = ['date', 'disp_inversion', 'disp_true']
-
-    fig, ax = plt.subplots(1,2, figsize = (16, 6))
-
-    ax[0].plot(signal.date, signal.disp, c = 'gray', label = 'Original')
-    ax[0].plot(timeseries.date, timeseries.disp_inversion, c = '#046C9A', label = 'Reconstruction')
-    ax[0].scatter(timeseries.date, timeseries.disp_inversion, c = '#046C9A')
+    ax[0].plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
+    for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
+        ax[0].plot(timeseries.date, timeseries[col], label = col, color = colors[i])
+        ax[0].scatter(timeseries.date, timeseries[col], color = colors[i])
+        
     ax[0].legend()
     ax[0].set_xlabel('Date')
     ax[0].set_ylabel('Displacement')
     ax[0].set_title('Cumulative displacement time-series')
 
-    ax[1].axhline(y=0, color='gray')
-    ax[1].plot(timeseries.date, timeseries.disp_true-timeseries.disp_inversion)
-    ax[1].set_title('Residual')
-    ax[1].set_xlabel('Date')
-    ax[1].set_ylabel('Residual')
+    if original_signal is not None: 
+        ax[1].axhline(y=0, color='gray')
+        for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
+            ax[1].plot(timeseries.date, timeseries.disp_true-timeseries[col], color = colors[i])
+        ax[1].set_title('Residual')
+        ax[1].set_xlabel('Date')
+        ax[1].set_ylabel('Residual')
+    
+def min_max_scaler(x):
+    return (x-np.nanmin(x))/(np.nanmax(x)-np.nanmin(x))
