@@ -87,6 +87,11 @@ def solve_matrix_system(A, B, rcond=1e-10, weights = None):
 def run_inversion(net, weightcol = None):
     
     '''Run time-series inversion for the given network dataframe'''
+    
+    net = net.copy()
+    if type(net.date0[0]) == pd._libs.tslibs.timestamps.Timestamp:
+        net.date0 = net.date0.dt.date
+        net.date1 = net.date1.dt.date
         
     dates0 = np.asarray([datetime.strptime(str(x), '%Y-%m-%d') for x in net.date0])
     dates1 = np.asarray([datetime.strptime(str(x), '%Y-%m-%d') for x in net.date1])
