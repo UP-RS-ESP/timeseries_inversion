@@ -9,6 +9,11 @@ import matplotlib.dates as mdates
 from datetime import datetime
 import networkx as nx
 from functools import reduce
+from itertools import combinations
+from matplotlib.patches import Arc
+from matplotlib.lines import Line2D
+import scipy.sparse as sp
+
 
 # define neccessary functions
 def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
@@ -105,9 +110,7 @@ def run_inversion(net, weightcol = None):
     print('Number of image pairs: %d'%num_pairs)
     nIslands = np.min(A.shape) - np.linalg.matrix_rank(A)
     print('Number of disconnected components in network: %d '%nIslands)
-    if nIslands > 1:
-        print('\tThe network appears to be disconnected. Consider connecting it to avoid artifacts.')
-    
+
     if weightcol != None:
         weights = net[weightcol]
     else:
@@ -170,6 +173,256 @@ def plot_results(timeseries, original_signal = None):
         ax[1].set_title('Residual')
         ax[1].set_xlabel('Date')
         ax[1].set_ylabel('Residual')
+        
+    plt.tight_layout()
+    plt.show()
+
     
 def min_max_scaler(x):
     return (x-np.nanmin(x))/(np.nanmax(x)-np.nanmin(x))
+
+def create_disconnected_groups(nr_groups, dates, overlap = 0):
+    
+    '''
+    Turns given dates into a network with disconnected groups. Specify number of groups and temporal overlap as input parameters. 
+    '''
+    
+    dates = np.array(dates)
+    cut = int(len(dates)/nr_groups)
+    
+    if int(cut/2) < overlap:
+        print(f"Overlap cannot be greater that group size. Please choose a value <= {int(cut/2) < overlap}!")
+        return
+    
+    gids = []
+    for g in range(nr_groups):
+        gids = gids + [g]*(cut-overlap*2)  + [g+1]*overlap + [g]*overlap
+        
+    if len(gids) < len(dates): #add not fitting dates to last group
+        gids = gids + [g]*(len(dates)-len(gids))
+    
+    #erase any higher numbers than nr_groups
+    
+    gids = np.array(gids)
+    gids[gids >= nr_groups] = g
+    
+    #now make image pairs
+    date_combinations = []
+    group_ids = []
+    for g in range(nr_groups):
+        gcombinations = list(combinations(dates[gids == g], 2))
+        date_combinations = date_combinations + gcombinations
+        group_ids += [g] * len(gcombinations)
+        
+    df = pd.DataFrame(date_combinations, columns=['date0', 'date1'])
+    df["group_id"] = group_ids
+    
+    return df
+
+def create_random_groups(nr_groups, dates, seed = 123):
+    '''
+    Randomly assigns acquisitions to a given number of groups and only establishes connections between them. 
+
+    '''
+    np.random.seed(seed)
+    dates = np.array(dates)
+    gids = np.random.randint(nr_groups, size = len(dates))
+    
+    #now make image pairs
+    date_combinations = []
+    group_ids = []
+
+    for g in range(nr_groups):
+        gcombinations = list(combinations(dates[gids == g], 2))
+        date_combinations = date_combinations + gcombinations
+        group_ids += [g] * len(gcombinations)
+        
+    df = pd.DataFrame(date_combinations, columns=['date0', 'date1'])
+    df["group_id"] = group_ids
+    
+    return df
+
+
+def plot_network(network):
+    
+    network = network.copy()
+    #need to convert dates to numeric values for plotting
+    if type(network.date0[0]) == pd._libs.tslibs.timestamps.Timestamp:
+
+        network['date0'] = pd.to_datetime(network['date0']).dt.date
+        network['date1'] = pd.to_datetime(network['date1']).dt.date
+
+    all_dates = sorted(set(network['date0']).union(set(network['date1'])))
+
+    #mapping for dates
+    numeric_dates = {date: (date - min(all_dates)).days for date in all_dates}
+
+    network['num_date0'] = network['date0'].map(numeric_dates)
+    network['num_date1'] = network['date1'].map(numeric_dates)
+    
+    network["num_diff"] = network.num_date1 - network.num_date0
+    
+    #get colors for unique groups
+    colormap = cm.get_cmap('tab10')
+    #mapping for colors
+    colors = {group_id: colormap(i) for i, group_id in enumerate(network.group_id.unique())}
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    # plot nodes
+    ax.scatter(list(numeric_dates.values()), [0] * len(numeric_dates), color='black')
+
+    # plot arcs 
+    for idx, row in network.iterrows():
+        ax.add_patch(Arc(
+            ((row['num_date0'] + row['num_date1']) / 2, 0), 
+            row.num_diff,            
+            row.num_diff,       
+            #set theta only have half circle                             
+            theta2=180,                                     
+            color= colors[row.group_id]
+        ))
+        
+    # Create legend lines
+    legend = [Line2D([0], [0], color=colors[group_id], lw=1, label=f'Group {group_id}') for group_id in network.group_id.unique()]
+    ax.legend(handles=legend, loc = 2)
+
+    ax.set_yticks([]) #empty y axis
+    ax.set_xticks(list(numeric_dates.values())) 
+    ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in all_dates], rotation=90) #overwrite x axis labels
+    
+    ax.set_ylim(-20, network.num_diff.max()/2 +20)
+    
+    #remove boundaries
+    ax.spines['left'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    plt.show()
+    
+    
+###########################################################################################################
+
+# the following code for the inversion of disconnected networks using a regularization term was provided by Laurane Charrier
+
+def mu_regularisation(regu, A, dates_range):
+    """
+    Compute the Tikhonov regularisation matrix
+
+    :param regu: str, type of regularization
+    :param A: np array, design matrix
+    :param dates_range: list, list of estimated dates
+    :param ini: initial parameter (velocity and/or acceleration mean)
+
+    :return mu: Tikhonov regularisation matrix
+    """
+
+    # First order Tikhonov regularisation
+    if regu == 1:
+        mu = np.identity(A.shape[1], dtype='float32')
+        mu[np.arange(mu.shape[0] - 1) + 1, np.arange(mu.shape[0] - 1)] = -1
+        mu /= (np.diff(dates_range) / np.timedelta64(1, 'D'))
+        mu = np.delete(mu, 0, axis=0)
+
+    # First order Tikhonov regularisation, with an apriori on the acceleration
+    elif regu == '1accelnotnull':
+        mu = np.diag(np.full(A.shape[1], -1, dtype='float32'))
+        mu[np.arange(A.shape[1] - 1), np.arange(A.shape[1] - 1) + 1] = 1
+        mu /= (np.diff(dates_range) / np.timedelta64(1, 'D'))
+        mu = np.delete(mu, -1, axis=0)
+
+    return mu
+def Construction_dates_range_np(data):
+    """
+    Construction of the dates of the estimated displacement in X with an irregular temporal sampling (ILF)
+    :param data: np.ndarray, an array where each line is (date1, date2, other elements) for which a velocity have been mesured
+    :return: np.ndarray, the dates of the estimated displacement in X
+    """
+
+    dates = np.concatenate([data[:, 0], data[:, 1]])  # concatante date1 and date2
+    dates = np.unique(dates)  # remove duplicates
+    dates = np.sort(dates)  # Sort the dates
+    return dates
+
+def Construction_A_LF(dates, dates_range):
+    """
+    Construction of the design matix A in the formulation AX = Y
+    
+    :param dates: np array, where each line is (date1, date2) for which a velocity is computed (it corresponds to the original displacements)
+    :param dates_range: list, dates of estimated displacemements in X
+    
+    :return: The design matrix A which represent the temporal closure of the displacement measurement network
+    """
+    # Search at which index in dates_range is stored each date in dates
+    date1_indices = np.searchsorted(dates_range, dates[:, 0])
+    date2_indices = np.searchsorted(dates_range, dates[:, 1]) - 1
+
+    A = np.zeros((dates.shape[0], dates_range[1:].shape[0]), dtype='int32')
+    for y in range(dates.shape[0]):
+        A[y, date1_indices[y]:date2_indices[y] + 1] = 1
+
+    return A
+
+def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality=None,
+                   verbose=False):
+    '''
+    Invert the system AX = Y for one component of the velocity, using a given solver
+
+    :param A: Matrix of the temporal inversion system AX = Y
+    :param data: np array, displacement observation Y
+    :param solver: 'LSMR', 'LSMR_ini', 'LS', 'LS_bounded', 'LSQR'
+    :param Weight: Weight, =1 for Ordinary Least Square
+    :param mu: regularization matrix
+    :param coef: Coef of Tikhonov regularization
+    :param ini: np array, Initialization of the inversion
+    :param: result_quality: None or list of str, which can contain 'Norm_residual' to determine the L2 norm of the residuals from the last inversion, 'X_contribution' to determine the number of Y observations which have contributed to estimate each value in X (it corresponds to A.dot(weight))
+    :param regu : str, type of regularization
+
+    :return X: The ILF temporal inversion of AX = Y using the given solver
+    :return residu_norm: Norm of the residual (when showing the L curve)
+    '''
+
+    if A.shape[0] < A.shape[1]:  # System is under-determined
+        print('The system is under-determined')
+    elif A.shape[0] >= A.shape[1]:  # System is over-determined
+        print('The system is over-determined')
+    if np.linalg.matrix_rank(A) < A.shape[1]:  # System is ill-posed
+        print('The system is ill posed')
+        print('rank A = {}'.format(np.linalg.matrix_rank(A)))
+
+    v = data
+    D_regu = np.zeros(mu.shape[0])
+    F_regu = np.multiply(coef, mu)
+    if Weight == 1: Weight = np.ones(v.shape[0]) #there is no weight, it corresponds to Ordinary Least Square
+    if solver == 'LSMR':
+        F = np.vstack([np.multiply(Weight[Weight != 0][:, np.newaxis], A[Weight != 0]), F_regu]).astype('float32')
+        D = np.hstack([np.multiply(Weight[Weight != 0], v[Weight != 0]), D_regu]).astype('float32')
+        F = sp.csc_matrix(F)  # column-scaling so that each column have the same euclidian norme (i.e. 1)
+        X = sp.linalg.lsmr(F, D)[0]  # If atol or btol is None, a default value of 1.0e-6 will be used. Ideally, they should be estimates of the relative error in the entries of A and b respectively.
+
+    elif solver == 'LSMR_ini':  # 50ms
+        # 16.7 ms ± 141 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
+        condi = (Weight != 0)
+        W = Weight[condi]
+        F = sp.csc_matrix(
+            np.vstack([np.multiply(W[:, np.newaxis], A[condi]),
+                       F_regu]))  # stack ax and regu, and remove rows with only 0
+        D = np.hstack([np.multiply(W, v[condi]), D_regu])  # stack ax and regu, and remove rows with only
+
+        if ini.shape[0] == 2:  # if only the average of the entire time series
+            x0 = np.full(len(A.shape [1]) - 1, ini, dtype='float32')
+        else:
+            x0 = ini
+        X = sp.linalg.lsmr(F, D, x0=x0)[0]
+
+    if result_quality is not None and 'Norm_residual' in result_quality:  # to show the L_curve
+        R_lcurve = F.dot(X) - D  # 50.7 µs ± 327 ns per loop (mean ± std. dev. of 7 runs, 10,000 loops each)
+        residu_norm = [np.linalg.norm(R_lcurve[:np.multiply(Weight[Weight != 0], v[Weight != 0]).shape[0]], ord=2),
+                       np.linalg.norm(R_lcurve[np.multiply(Weight[Weight != 0], v[Weight != 0]).shape[0]:] / coef,
+                                      ord=2)]
+    else:
+        residu_norm = None
+
+    return X, residu_norm
+  
