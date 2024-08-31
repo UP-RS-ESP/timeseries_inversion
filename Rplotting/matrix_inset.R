@@ -2,10 +2,11 @@ library(ggplot2)
 library(dplyr)
 library(ggrepel)
 library(patchwork)
+library(scico)
 
 setwd("/home/ariane/Documents/Project3/scripts/timeseries_inversion/Rplotting")
-net <- read.csv("network_example.csv")
-time <- read.csv("timeseries_example.csv")
+net <- read.csv("network_seasonal_error.csv")
+time <- read.csv("timeseries_seasonal_error.csv")
 time$date <- as.Date(time$date)
 
 #get all dates to set limits for axes - otherwise missing date combinations may lead to missing dates on the axes
@@ -27,26 +28,24 @@ p1 <- ggplot(data = time)+
 
 #plot matrix
 p2 <- ggplot()+
-  geom_tile(data = net, aes(date0, date1, fill = connection_type))+
-  scale_fill_manual(values = c("#F2AD00", "#5BBCD6"))+
+  geom_tile(data = net, aes(date0, date1, fill = error))+
   theme_bw()+
-  labs(fill = "")+
+  scale_fill_scico(palette = "vikO", limits = c(-15, 15))+
+  labs(fill = "Error [m]")+
   scale_x_discrete(limits = dp1)+
   scale_y_discrete(limits = dp2)+
   theme(axis.text.x = element_blank(),
          axis.text.y = element_blank(),
          axis.title = element_blank(),
          axis.ticks = element_blank(),
-         legend.title=element_text(size=9, hjust = 0.5, vjust = 0.5),
-         legend.text=element_text(size=7, hjust = 0.5, vjust = 0.5),
-         legend.key.size = unit(0.6, "cm"),
-         legend.spacing.y = unit(0.2, "cm"),
-         legend.spacing.x = unit(0.2, 'cm'),
-         legend.position = c(0.98, 0.02),
-         legend.justification = c(0.98, 0.02),
-         legend.background = element_rect(fill = "white", color = NA, linewidth = 0.2), 
-         legend.margin=margin(t=-0.3,l=0.1,b=0.1,r=0.1, unit='cm'),
-         plot.margin=grid::unit(c(0,0,-1,-1), "mm"))
+         legend.title = element_text(angle = 90, size=9, hjust = 0.5, vjust = 0.5), 
+         legend.text = element_text(angle = 90, size=7, hjust = 0.5, vjust = 0.5),
+         legend.key.width = unit(0.1, "cm"),
+         legend.position = c(0,1),
+         legend.justification = c(1,1),
+         legend.background = element_rect(fill = "white", color = NA, linewidth = 0.2),
+         plot.margin=grid::unit(c(0,0,-1,-1), "mm"))+
+  guides(fill = guide_colorbar(title.position = "left"))
 
 #add matrix to time-series plot
 p1 + inset_element(p2, left = 0.64, bottom = 0, right = 1, top = 0.45)

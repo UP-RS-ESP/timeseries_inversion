@@ -2,16 +2,10 @@ library(ggplot2)
 library(dplyr)
 library(randomcoloR)
 library(ggrepel)
+library(scico)
 
 setwd("/home/ariane/Documents/Project3/scripts/timeseries_inversion/Rplotting")
-dat <- read.csv("network_example.csv")
-
-#create unique identifiers for assign colors based on reference direct connections
-dat$conn_id <- paste0(dat$date0_direct, dat$date1_direct)
-dat$conn_id[dat$conn_id == ""] = paste0(dat$date0[dat$conn_id == ""], dat$date1[dat$conn_id == ""])
-
-#unique colors
-palette <- randomColor(length(unique(dat$conn_id)), luminosity = "bright")
+dat <- read.csv("network_seasonal_error.csv")
 
 #get all dates to set limits for axes - otherwise missing date combinations may lead to missing dates on the axes
 dates = sort(unique(c(dat$date0, dat$date1)))
@@ -19,13 +13,12 @@ dp1 = dates[1:length(dates)-1]
 dp2 = dates[2:length(dates)]
 
 ggplot()+
-  geom_tile(data = dat, aes(date0, date1, fill = conn_id, alpha = connection_type))+
+  geom_tile(data = dat, aes(date0, date1, fill = error))+
   theme_bw()+
   scale_x_discrete(limits = dp1)+
   scale_y_discrete(limits = dp2)+
-  scale_alpha_manual(values = c(1, 0.5))+
-  scale_fill_manual(values = palette, guide = "none")+
-  labs(x = "Reference date", y = "Secondary date", alpha = "Connection type")+
+  scale_fill_scico(palette = "vikO", limits = c(-15, 15))+
+  labs(x = "Reference date", y = "Secondary date", fill = "Error [m]")+
   geom_text_repel(aes(x = Inf, y =-Inf), label = "B: Matrix", bg.color = "white", color = "black", vjust = 1.5, hjust = -0.1, size = 4.3)+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 7), 
         axis.text.y = element_text(size=7),
