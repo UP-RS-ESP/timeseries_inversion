@@ -44,6 +44,8 @@ def mu_regularisation(regu, A, dates_range):
         mu = np.delete(mu, -1, axis=0)
 
     return mu
+
+
 def Construction_dates_range_np(data):
     """
     Construction of the dates of the estimated displacement in X with an irregular temporal sampling (ILF).
@@ -56,6 +58,7 @@ def Construction_dates_range_np(data):
     dates = np.unique(dates)  # remove duplicates
     dates = np.sort(dates)  # Sort the dates
     return dates
+
 
 def Construction_A_LF(dates, dates_range):
     """
@@ -75,6 +78,7 @@ def Construction_A_LF(dates, dates_range):
         A[y, date1_indices[y]:date2_indices[y] + 1] = 1
 
     return A
+
 
 def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality=None,
                    verbose=False):
@@ -133,7 +137,6 @@ def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality
     
 
 def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
-    
     '''Find the displacement that took place between two dates according to the given reference signal.'''
     
     dp0 = signal[signal[datecol] == row.date0]
@@ -148,7 +151,6 @@ def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
 
 
 def create_design_matrix_cumulative_displacement(num_pairs, dates0, dates1):
-    
     '''Create designmatrix connecting the cumulative displacement vector and the displacement measured between each date pair'''
    
     unique_dates = np.union1d(np.unique(dates0), np.unique(dates1))
@@ -178,7 +180,6 @@ def create_design_matrix_cumulative_displacement(num_pairs, dates0, dates1):
 
 
 def solve_matrix_system(A, B, rcond=1e-10, weights = None):
-    
     '''
     Solve matrix system using least squares. 
     Args: 
@@ -206,7 +207,6 @@ def solve_matrix_system(A, B, rcond=1e-10, weights = None):
 
 
 def run_inversion(net, weightcol = None, regu = False):
-    
     '''Wrapper for running the time-series inversion for the given network dataframe'''
     
     num_pairs = len(net)
@@ -245,7 +245,7 @@ def run_inversion(net, weightcol = None, regu = False):
     else: # add a regularization term and solve the inversion
         
         data = net[['date0','date1']].values
-        sample_dates = pd.concat([net.date0, net.date1]).unique().astype(np.datetime64)
+        sample_dates = pd.concat([net.date0, net.date1]).unique().astype("datetime64[ns]").to_numpy()
         sample_dates.sort()
     
         dates_range = Construction_dates_range_np(data)
@@ -268,7 +268,6 @@ def run_inversion(net, weightcol = None, regu = False):
         
 
 def plot_results(timeseries, original_signal = None):
-    
     '''
     Plot inverted time series and residual to original signal.
     Plots data from multiple inversion runs when parameter timeseries is provided as a list of pd dfs.
@@ -287,7 +286,6 @@ def plot_results(timeseries, original_signal = None):
         colors = [colormap(i) for i in np.arange(0,len(timeseries))]
     else: 
         colors = [colormap(0)]
-                                                   
 
     if original_signal is not None:
         original_signal.date = pd.to_datetime(original_signal.date)
@@ -324,7 +322,6 @@ def min_max_scaler(x):
     return (x-np.nanmin(x))/(np.nanmax(x)-np.nanmin(x))
 
 def create_disconnected_groups(nr_groups, dates, overlap = 0):
-    
     '''
     Turns given dates into a network with disconnected groups. Specify number of groups and temporal overlap as input parameters. 
     '''
@@ -358,8 +355,9 @@ def create_disconnected_groups(nr_groups, dates, overlap = 0):
         
     df = pd.DataFrame(date_combinations, columns=['date0', 'date1'])
     df["group_id"] = group_ids
-    
+
     return df
+
 
 def create_random_groups(nr_groups, dates, seed = 123):
     '''
@@ -386,7 +384,6 @@ def create_random_groups(nr_groups, dates, seed = 123):
 
 
 def plot_network(network):
-    
     network = network.copy()
     #need to convert dates to numeric values for plotting
     if type(network.date0[0]) == pd._libs.tslibs.timestamps.Timestamp:
