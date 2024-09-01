@@ -245,7 +245,7 @@ def run_inversion(net, weightcol = None, regu = False):
     else: # add a regularization term and solve the inversion
         
         data = net[['date0','date1']].values
-        sample_dates = pd.concat([net.date0, net.date1]).unique().astype("datetime64[ns]").to_numpy()
+        sample_dates = pd.concat([net.date0, net.date1]).unique().astype("datetime64[ns]")
         sample_dates.sort()
     
         dates_range = Construction_dates_range_np(data)
