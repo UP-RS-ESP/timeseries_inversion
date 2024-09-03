@@ -17,7 +17,7 @@ import scipy.sparse.linalg
 
 
 
-def mu_regularisation(regu, A, dates_range):
+def mu_regularisation(regu:str, A:np.array, dates_range:np.array)->np.array:
     """
     Compute the Tikhonov regularisation matrix. Code provided by Laurane Charrier.
 
