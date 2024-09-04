@@ -62,7 +62,7 @@ def Construction_dates_range_np(data):
 
 def Construction_A_LF(dates, dates_range):
     """
-    Construction of the design matix A in the formulation AX = Y. Code provided by Laurane Charrier.
+    Construction of the design matix A in the formulation AX = B. Code provided by Laurane Charrier.
     
     :param dates: np array, where each line is (date1, date2) for which a velocity is computed (it corresponds to the original displacements)
     :param dates_range: list, dates of estimated displacemements in X
@@ -74,8 +74,8 @@ def Construction_A_LF(dates, dates_range):
     date2_indices = np.searchsorted(dates_range, dates[:, 1]) - 1
 
     A = np.zeros((dates.shape[0], dates_range[1:].shape[0]), dtype='int32')
-    for y in range(dates.shape[0]):
-        A[y, date1_indices[y]:date2_indices[y] + 1] = 1
+    for b in range(dates.shape[0]):
+        A[b, date1_indices[b]:date2_indices[b] + 1] = 1
 
     return A
 
@@ -83,10 +83,10 @@ def Construction_A_LF(dates, dates_range):
 def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality=None,
                    verbose=False):
     '''
-    Invert the system AX = Y for one component of the velocity, using a given solver. Code provided by Laurane Charrier.
+    Invert the system AX = B for one component of the velocity, using a given solver. Code provided by Laurane Charrier.
 
-    :param A: Matrix of the temporal inversion system AX = Y
-    :param data: np array, displacement observation Y
+    :param A: Matrix of the temporal inversion system AX = B
+    :param data: np array, displacement observation B
     :param solver: 'LSMR', 'LSMR_ini', 'LS', 'LS_bounded', 'LSQR'
     :param Weight: Weight, =1 for Ordinary Least Square
     :param mu: regularization matrix
