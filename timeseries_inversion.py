@@ -137,7 +137,16 @@ def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality
     
 
 def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
-    '''Find the displacement that took place between two dates according to the given reference signal.'''
+    '''
+    Find the displacement that took place between two dates according to the given reference signal.
+    Args: 
+        row: row of a pandas dataframe for which the displacement shall be estimated. 
+        signal: pandas dataframe containing the reference displacement signal based on which pairwise measurements will be estimated. 
+        datecol: string indicating the name of the column in the signal df containing the dates. Default = date
+        dispcol: string indicating the name of the column in the signal df containing the reference displacement. Default = disp. 
+    Returns: 
+        d_soll: displacement value according to provided reference signal. 
+    '''
     
     dp0 = signal[signal[datecol] == row.date0]
     dp1 = signal[signal[datecol] == row.date1]
@@ -151,7 +160,15 @@ def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
 
 
 def create_design_matrix_cumulative_displacement(num_pairs, dates0, dates1):
-    '''Create designmatrix connecting the cumulative displacement vector and the displacement measured between each date pair'''
+    '''
+    Create designmatrix connecting the cumulative displacement vector and the displacement measured between each date pair. 
+    Args: 
+        num_pairs: integer value corresponding to the number of pairwise displacement measurements in network. 
+        dates0: array of reference dates. 
+        dates1: array of secondary dates. 
+    Returns: 
+        A: design matrix to be used in the inversion. 
+    '''
    
     unique_dates = np.union1d(np.unique(dates0), np.unique(dates1))
     num_dates = len(unique_dates)
@@ -179,12 +196,13 @@ def create_design_matrix_cumulative_displacement(num_pairs, dates0, dates1):
     return A, date_list
 
 
-def solve_matrix_system(A, B, rcond=1e-10, weights = None):
+def solve_matrix_system(A, B, weights = None):
     '''
-    Solve matrix system using least squares. 
+    Solve matrix system of the form AX = B using least squares without a regularization term. 
     Args: 
         A: design matrix
         B: vector storing pairwise displacement measurements
+        weights: vector with the weight to be assigned to every pairwise displacement measurement.
     Returns: 
         ts: inverted time series
     '''
@@ -200,14 +218,23 @@ def solve_matrix_system(A, B, rcond=1e-10, weights = None):
 
     B = B.astype(np.float64)
 
-    X, _, _, _ = np.linalg.lstsq(A.astype(np.float64), B, rcond=rcond)
+    X, _, _, _ = np.linalg.lstsq(A.astype(np.float64), B, rcond=1e-10)
     ts[1:, 0] = X.astype(np.float32)[:,0] #first displacement will be 0
 
     return ts[:,0]
 
 
 def run_inversion(net, weightcol = None, regu = False):
-    '''Wrapper for running the time-series inversion for the given network dataframe'''
+    '''
+    Wrapper for running the time-series inversion for the given network.
+    Args: 
+        net: pandas dataframe storing the network to be inverted. Must contain the columns date0, date1 and disp. 
+        weightcol: string indicating the name of the column in net storing weights for the individual connections. 
+        regu: boolean indicating if the inversion shall be solved using a regularization term. Default = False, i.e. no regularization. 
+    Returns: 
+        out: pandas dataframe containing the result of the inversion. Columns include dates and cumulative displacement (disp_inversion)
+    
+    '''
     
     num_pairs = len(net)
     print('Number of image pairs: %d'%num_pairs)
@@ -269,11 +296,22 @@ def run_inversion(net, weightcol = None, regu = False):
 
     
 def min_max_scaler(x):
+    '''
+    Scales the values in the given input array or pd.Series between 0 and 1.
+    '''
     return (x-np.nanmin(x))/(np.nanmax(x)-np.nanmin(x))
+
 
 def create_disconnected_groups(nr_groups, dates, overlap = 0):
     '''
-    Turns given dates into a network with disconnected groups. Specify number of groups and temporal overlap as input parameters. 
+    Turns given dates into a network with disconnected groups. 
+    Args: 
+        nr_groups: integer number specifying number of groups to be created.
+        dates: pd Datetime index or array of dates in network. 
+        overlap: integer number indicating the temporal overlap between groups in units of timesteps. 
+        By default, there will be no temporal overlap, i.e. overlap = 0. 
+    Returns: 
+        df: pandas dataframe with date pairs and corresponding group_id.
     '''
     
     dates = np.array(dates)
@@ -312,6 +350,12 @@ def create_disconnected_groups(nr_groups, dates, overlap = 0):
 def create_random_groups(nr_groups, dates, seed = 123):
     '''
     Randomly assigns acquisitions to a given number of groups and only establishes connections between them. 
+    Args: 
+        nr_groups: integer number specifying number of groups to be created.
+        dates: pd Datetime index or array of dates in network. 
+        seed: seed for random group assignment (optional).
+    Returns: 
+        df: pandas dataframe with date pairs and corresponding group_id.
 
     '''
     np.random.seed(seed)
@@ -331,6 +375,7 @@ def create_random_groups(nr_groups, dates, seed = 123):
     df["group_id"] = group_ids
     
     return df
+
 
 def plot_timeseries(timeseries, original_signal = None, legend = []):
     '''
@@ -396,6 +441,7 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
         
     plt.tight_layout()
     plt.show()
+
 
 def plot_network(network):
     '''
