@@ -227,7 +227,7 @@ def run_inversion(net, weightcol = None, regu = False):
         A, date_list = create_design_matrix_cumulative_displacement(num_pairs, dates0, dates1)
     
         nIslands = np.min(A.shape) - np.linalg.matrix_rank(A)
-        print(f'Number of disconnected groups in network: {nIslands +1}')
+        print(f'Number of groups in network: {nIslands +1}')
         
         if weightcol != None:
             weights = net[weightcol]
@@ -251,7 +251,7 @@ def run_inversion(net, weightcol = None, regu = False):
         dates_range = Construction_dates_range_np(data)
         A = Construction_A_LF(data,dates_range)
         nIslands = np.min(A.shape) - np.linalg.matrix_rank(A)
-        print(f'Number of disconnected groups in network: {nIslands +1}')
+        print(f'Number of groups in network: {nIslands +1}')
         print("Solving the inversion including a regularization term ...")
         mu = mu_regularisation(regu=1, A=A, dates_range=sample_dates)
     
@@ -266,56 +266,6 @@ def run_inversion(net, weightcol = None, regu = False):
         
         return out
         
-
-def plot_results(timeseries, original_signal = None):
-    '''
-    Plot inverted time series and residual to original signal.
-    Plots data from multiple inversion runs when parameter timeseries is provided as a list of pd dfs.
-    '''
-    
-    original_signal = original_signal.copy()
-    
-    colormap = cm.get_cmap('Dark2')
-    if type(timeseries) == list:
-        # rename columns
-        timeseries = [t.copy() for t in timeseries] #make a hard copy to avoid col renaming in orig dfs
-        for i in range(len(timeseries)):
-            timeseries[i].columns = ["date", f"disp_inversion_{i}"]
-        timeseries = reduce(lambda left, right: pd.merge(left, right, on="date"), timeseries)
-     
-        colors = [colormap(i) for i in np.arange(0,len(timeseries))]
-    else: 
-        colors = [colormap(0)]
-
-    if original_signal is not None:
-        original_signal.date = pd.to_datetime(original_signal.date)
-        original_signal.columns = ["date", "disp_true"]
-        fig, ax = plt.subplots(1,2, figsize = (16, 6))
-    else: 
-        fig, ax = plt.subplots(1,1, figsize = (8, 6))
-        
-    timeseries = pd.merge(timeseries, original_signal, on = 'date', how = 'left')
-    
-    ax[0].plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
-    for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
-        ax[0].plot(timeseries.date, timeseries[col], label = col, color = colors[i])
-        ax[0].scatter(timeseries.date, timeseries[col], color = colors[i])
-        
-    ax[0].legend()
-    ax[0].set_xlabel('Date')
-    ax[0].set_ylabel('Displacement')
-    ax[0].set_title('Cumulative displacement time-series')
-
-    if original_signal is not None: 
-        ax[1].axhline(y=0, color='gray')
-        for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
-            ax[1].plot(timeseries.date, timeseries.disp_true-timeseries[col], color = colors[i])
-        ax[1].set_title('Residual')
-        ax[1].set_xlabel('Date')
-        ax[1].set_ylabel('Residual')
-        
-    plt.tight_layout()
-    plt.show()
 
     
 def min_max_scaler(x):
@@ -382,8 +332,77 @@ def create_random_groups(nr_groups, dates, seed = 123):
     
     return df
 
+def plot_timeseries(timeseries, original_signal = None, legend = []):
+    '''
+    Plot inverted time series and residual to original signal.
+    Args: 
+        timeseries: pandas dataframe retrieved from the inversion process storing dates and displacement OR
+                    list of pandas dataframes, e.g. [df1, df2, df3] to plot the results from multiple inversions together.
+        original_signal: Optional. pandas dataframe storing the dates and displacement of the original signal or any signal that 
+                    the inverted timeseries shall be compared against (residuals are calculated).
+        legend: Optional. List of strings with names of legend items. Must be of same length as the provided number of time series. 
+    '''
+    
+    original_signal = original_signal.copy()
+    
+    colormap = cm.get_cmap('Dark2')
+    if type(timeseries) == list:
+        
+        #check for provided legend
+        if len(legend) == 0 or len(legend) != len(timeseries):
+            legend = [f"Time series #{ts+1}" for ts in range(len(timeseries))]
+            
+        # combine data and rename columns
+        timeseries = [t.copy() for t in timeseries] #make a hard copy to avoid col renaming in orig dfs
+        for i in range(len(timeseries)):
+            timeseries[i].columns = ["date", f"disp_inversion_{i}"]
+        timeseries = reduce(lambda left, right: pd.merge(left, right, on="date"), timeseries)
+     
+        colors = [colormap(i) for i in np.arange(0,len(timeseries))]
+        
+    else: 
+        colors = [colormap(0)]
+        if len(legend) == 0 or len(legend) != 1:
+            legend = ["Times series #1"]
+
+
+    if original_signal is not None:
+        original_signal.date = pd.to_datetime(original_signal.date)
+        original_signal.columns = ["date", "disp_true"]
+        fig, ax = plt.subplots(1,2, figsize = (16, 6))
+    else: 
+        fig, ax = plt.subplots(1,1, figsize = (8, 6))
+        
+    timeseries = pd.merge(timeseries, original_signal, on = 'date', how = 'left')
+    
+    ax[0].plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
+    for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
+        ax[0].plot(timeseries.date, timeseries[col], color = colors[i], label = legend[i])
+        ax[0].scatter(timeseries.date, timeseries[col], color = colors[i])
+        
+    ax[0].legend()
+    ax[0].set_xlabel('Date')
+    ax[0].set_ylabel('Displacement')
+    ax[0].set_title('Cumulative displacement time-series')
+
+    if original_signal is not None: 
+        ax[1].axhline(y=0, color='gray')
+        for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
+            ax[1].plot(timeseries.date, timeseries.disp_true-timeseries[col], color = colors[i], label = legend[i])
+        ax[1].set_title('Residual')
+        ax[1].set_xlabel('Date')
+        ax[1].set_ylabel('Residual')
+        ax[1].legend()
+        
+    plt.tight_layout()
+    plt.show()
 
 def plot_network(network):
+    '''
+    Plot network structure as arc diagramm. 
+    Args: 
+        network: df with pairwise displacement measurements between date0 and date1
+    '''
     network = network.copy()
     #need to convert dates to numeric values for plotting
     if type(network.date0[0]) == pd._libs.tslibs.timestamps.Timestamp:
@@ -401,6 +420,9 @@ def plot_network(network):
     
     network["num_diff"] = network.num_date1 - network.num_date0
     
+    #verify that there is a geoup_id col (maz not be the case for connected networks)
+    if not ("group_id" in network.columns):
+        network["group_id"] = 1
     #get colors for unique groups
     colormap = cm.get_cmap('tab10')
     #mapping for colors
