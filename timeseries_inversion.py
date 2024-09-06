@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-import matplotlib.dates as mdates
 from datetime import datetime
 from functools import reduce
 from itertools import combinations
@@ -13,6 +12,7 @@ from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
 import scipy.sparse as sp
 import scipy.sparse.linalg
+import networkx as nx
 
 
 
@@ -240,7 +240,7 @@ def run_inversion(net, weightcol = None, regu = False):
         
     if not regu: #classic inversion 
         net = net.copy()
-        if type(net.date0[0]) == pd._libs.tslibs.timestamps.Timestamp:
+        if type(net.date0.iloc[0]) == pd._libs.tslibs.timestamps.Timestamp:
             net.date0 = net.date0.dt.date
             net.date1 = net.date1.dt.date
             
@@ -450,7 +450,7 @@ def plot_network(network):
     '''
     network = network.copy()
     #need to convert dates to numeric values for plotting
-    if type(network.date0[0]) == pd._libs.tslibs.timestamps.Timestamp:
+    if type(network.date0.iloc[0]) == pd._libs.tslibs.timestamps.Timestamp:
 
         network['date0'] = pd.to_datetime(network['date0']).dt.date
         network['date1'] = pd.to_datetime(network['date1']).dt.date
@@ -465,9 +465,12 @@ def plot_network(network):
     
     network["num_diff"] = network.num_date1 - network.num_date0
     
-    #verify that there is a geoup_id col (maz not be the case for connected networks)
-    if not ("group_id" in network.columns):
-        network["group_id"] = 1
+    #check connectivity of network
+    G = nx.from_pandas_edgelist(network, 'date0', 'date1')
+    ccs = list(nx.connected_components(G))
+    group_mapping = {node: group_id for group_id, nodes in enumerate(ccs) for node in nodes}
+    network['group_id'] = network['date0'].apply(lambda x: group_mapping[x])
+    
     #get colors for unique groups
     colormap = cm.get_cmap('tab10')
     #mapping for colors
