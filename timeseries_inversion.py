@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.dates as mdates
 from datetime import datetime
-import networkx as nx
 from functools import reduce
 from itertools import combinations
 from matplotlib.patches import Arc
@@ -104,8 +103,8 @@ def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality
     F_regu = np.multiply(coef, mu)
     if Weight == 1: Weight = np.ones(v.shape[0]) #there is no weight, it corresponds to Ordinary Least Square
     if solver == 'LSMR':
-        F = np.vstack([np.multiply(Weight[Weight != 0][:, np.newaxis], A[Weight != 0]), F_regu]).astype('float32')
-        D = np.hstack([np.multiply(Weight[Weight != 0], v[Weight != 0]), D_regu]).astype('float32')
+        F = np.vstack([np.multiply(Weight[Weight != 0][:, np.newaxis], A[Weight != 0]), F_regu]).astype('float')
+        D = np.hstack([np.multiply(Weight[Weight != 0], v[Weight != 0]), D_regu]).astype('float')
         F = sp.csc_matrix(F)  # column-scaling so that each column have the same euclidian norme (i.e. 1)
         X = sp.linalg.lsmr(F, D)[0]  # If atol or btol is None, a default value of 1.0e-6 will be used. Ideally, they should be estimates of the relative error in the entries of A and b respectively.
 
@@ -262,7 +261,7 @@ def run_inversion(net, weightcol = None, regu = False):
             weights = None
          
         #run inversion
-        timeseries = solve_matrix_system(A, displacements, rcond=1e-10, weights = weights)
+        timeseries = solve_matrix_system(A, displacements, weights = weights)
       
         out = pd.DataFrame({'date': date_list, 'disp_inversion': timeseries})
         out['date'] = pd.to_datetime(out.date)
@@ -272,8 +271,8 @@ def run_inversion(net, weightcol = None, regu = False):
     else: # add a regularization term and solve the inversion
         
         data = net[['date0','date1']].values
-        sample_dates = pd.concat([net.date0, net.date1]).unique().astype("datetime64[ns]")
-        sample_dates.sort()
+        sample_dates = pd.concat([net.date0, net.date1]).unique()
+        sample_dates = np.sort(sample_dates)
     
         dates_range = Construction_dates_range_np(data)
         A = Construction_A_LF(data,dates_range)
