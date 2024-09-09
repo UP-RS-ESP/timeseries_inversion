@@ -394,15 +394,10 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
         if len(legend) == 0 or len(legend) != len(timeseries):
             legend = [f"Time series #{ts+1}" for ts in range(len(timeseries))]
             
-        # combine data and rename columns
-        timeseries = [t.copy() for t in timeseries] #make a hard copy to avoid col renaming in orig dfs
-        for i in range(len(timeseries)):
-            timeseries[i].columns = ["date", f"disp_inversion_{i}"]
-        timeseries = reduce(lambda left, right: pd.merge(left, right, on="date"), timeseries)
-     
         colors = [colormap(i) for i in np.arange(0,len(timeseries))]
         
     else: 
+        timeseries = [timeseries]
         colors = [colormap(0)]
         if len(legend) == 0 or len(legend) != 1:
             legend = ["Times series #1"]
@@ -414,19 +409,17 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
         original_signal.columns = ["date", "disp_true"]
         fig, (ax1, ax2) = plt.subplots(1,2, figsize = (16, 6))
         
-        icol = timeseries.columns.drop(["date", "disp_true"])
     else: 
         fig, ax1 = plt.subplots(1,1, figsize = (8, 6))
-        icol = timeseries.columns.drop(["date"])
         
     if original_signal is not None: 
-        timeseries = pd.merge(timeseries, original_signal, on = 'date', how = 'left')
+        timeseries = [pd.merge(ts, original_signal, on = 'date', how = 'left') for ts in timeseries]
         ax1.plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
         
     
-    for i, col in enumerate(icol): 
-        ax1.plot(timeseries.date, timeseries[col], color = colors[i], label = legend[i])
-        ax1.scatter(timeseries.date, timeseries[col], color = colors[i])
+    for i in range(len(timeseries)): 
+        ax1.plot(timeseries[i].date, timeseries[i].disp_inversion, color = colors[i], label = legend[i])
+        ax1.scatter(timeseries[i].date, timeseries[i].disp_inversion, color = colors[i])
         
     ax1.legend()
     ax1.set_xlabel('Date')
@@ -435,8 +428,8 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
 
     if original_signal is not None: 
         ax2.axhline(y=0, color='gray')
-        for i, col in enumerate(icol): 
-            ax2.plot(timeseries.date, timeseries.disp_true-timeseries[col], color = colors[i], label = legend[i])
+        for i in range(len(timeseries)): 
+            ax2.plot(timeseries[i].date, timeseries[i].disp_true-timeseries[i].disp_inversion, color = colors[i], label = legend[i])
         ax2.set_title('Residual')
         ax2.set_xlabel('Date')
         ax2.set_ylabel('Residual')
