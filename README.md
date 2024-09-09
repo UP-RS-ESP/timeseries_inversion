@@ -3,10 +3,11 @@
 This repository constains scripts and examples for reconstructing a displacement signal from a network of pairwise displacement measurements through time-series inversion. Inversion is part of the processing chain for deriving a continuos time series from satellite-based measurements of displacements over landslides, glaciers, dunes or other Earth-surface processes. Here, we explore the impact of measurement errors and network connectivity using an artificial displacement signal.     
 
 ## Content
-All relevant python functions can be found in [timeseries_inversion.py](./timeseries_inversion.py). We also created three Jupyter Notebooks that show their application with regards to the following topics: 
+All relevant python functions can be found in [timeseries_inversion.py](./timeseries_inversion.py). We also created four Jupyter Notebooks that show their application with regards to the following topics: 
  - [Notebook 1](./timeseries_inversion_basic_example.ipynb): basic reconstruction and the effect of different types of measurement errors.
  - [Notebook 2](./timeseries_inversion_with_weights.ipynb): different weighting strategies that can help to improve the reconstruction accuracy.
  - [Notebook 3](./timeseries_inversion_sparse_and_disconnected_networks.ipynb): inversion of sparsely connected (one group but limited number of connections) and disconnected (seperate groups) networks.
+ - [Notebook 4](./timeseries_inversion_seasonal_error_mitigation.ipynb): seasonal error mitigation through regular sampling or same-season pairing
 
 ## Installation
 To install all necessary Python packages, create a new environment using conda and the provided [environment.yml](./environment.yml) file: 
