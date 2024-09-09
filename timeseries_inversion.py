@@ -386,9 +386,7 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
                     the inverted timeseries shall be compared against (residuals are calculated).
         legend: Optional. List of strings with names of legend items. Must be of same length as the provided number of time series. 
     '''
-    
-    original_signal = original_signal.copy()
-    
+
     colormap = cm.get_cmap('Dark2')
     if type(timeseries) == list:
         
@@ -411,32 +409,38 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
 
 
     if original_signal is not None:
+        original_signal = original_signal.copy()
         original_signal.date = pd.to_datetime(original_signal.date)
         original_signal.columns = ["date", "disp_true"]
-        fig, ax = plt.subplots(1,2, figsize = (16, 6))
+        fig, (ax1, ax2) = plt.subplots(1,2, figsize = (16, 6))
+        
+        icol = timeseries.columns.drop(["date", "disp_true"])
     else: 
-        fig, ax = plt.subplots(1,1, figsize = (8, 6))
+        fig, ax1 = plt.subplots(1,1, figsize = (8, 6))
+        icol = timeseries.columns.drop(["date"])
         
-    timeseries = pd.merge(timeseries, original_signal, on = 'date', how = 'left')
+    if original_signal is not None: 
+        timeseries = pd.merge(timeseries, original_signal, on = 'date', how = 'left')
+        ax1.plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
+        
     
-    ax[0].plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
-    for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
-        ax[0].plot(timeseries.date, timeseries[col], color = colors[i], label = legend[i])
-        ax[0].scatter(timeseries.date, timeseries[col], color = colors[i])
+    for i, col in enumerate(icol): 
+        ax1.plot(timeseries.date, timeseries[col], color = colors[i], label = legend[i])
+        ax1.scatter(timeseries.date, timeseries[col], color = colors[i])
         
-    ax[0].legend()
-    ax[0].set_xlabel('Date')
-    ax[0].set_ylabel('Displacement')
-    ax[0].set_title('Cumulative displacement time-series')
+    ax1.legend()
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Displacement')
+    ax1.set_title('Cumulative displacement time-series')
 
     if original_signal is not None: 
-        ax[1].axhline(y=0, color='gray')
-        for i, col in enumerate(timeseries.columns.drop(["date", "disp_true"])): 
-            ax[1].plot(timeseries.date, timeseries.disp_true-timeseries[col], color = colors[i], label = legend[i])
-        ax[1].set_title('Residual')
-        ax[1].set_xlabel('Date')
-        ax[1].set_ylabel('Residual')
-        ax[1].legend()
+        ax2.axhline(y=0, color='gray')
+        for i, col in enumerate(icol): 
+            ax2.plot(timeseries.date, timeseries.disp_true-timeseries[col], color = colors[i], label = legend[i])
+        ax2.set_title('Residual')
+        ax2.set_xlabel('Date')
+        ax2.set_ylabel('Residual')
+        ax2.legend()
         
     plt.tight_layout()
     plt.show()
