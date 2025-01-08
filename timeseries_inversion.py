@@ -223,12 +223,13 @@ def solve_matrix_system(A, B, weights = None):
     return ts[:,0]
 
 
-def run_inversion(net, weightcol = None, regu = False):
+def run_inversion(net, dispcol = 'disp', weightcol = None, regu = False):
     '''
     Wrapper for running the time-series inversion for the given network.
     Args: 
-        net: pandas dataframe storing the network to be inverted. Must contain the columns date0, date1 and disp. 
-        weightcol: string indicating the name of the column in net storing weights for the individual connections. 
+        net: pandas dataframe storing the network to be inverted. Must contain the columns date0, date1 and displacement.
+        dispcol: string indicating the name of the column containing displacement measurements. Default = 'disp'
+        weightcol: string indicating the name of the column in net storing weights for the individual connections. Default = None, i.e. no weights.
         regu: boolean indicating if the inversion shall be solved using a regularization term. Default = False, i.e. no regularization. 
     Returns: 
         out: pandas dataframe containing the result of the inversion. Columns include dates and cumulative displacement (disp_inversion)
@@ -247,7 +248,7 @@ def run_inversion(net, weightcol = None, regu = False):
         dates0 = np.asarray([datetime.strptime(str(x), '%Y-%m-%d') for x in net.date0])
         dates1 = np.asarray([datetime.strptime(str(x), '%Y-%m-%d') for x in net.date1])
             
-        displacements = np.array(net.disp).reshape((num_pairs, 1))
+        displacements = np.array(net[dispcol]).reshape((num_pairs, 1))
     
         # create design_matrix
         A, date_list = create_design_matrix_cumulative_displacement(num_pairs, dates0, dates1)
@@ -282,7 +283,7 @@ def run_inversion(net, weightcol = None, regu = False):
         mu = mu_regularisation(regu=1, A=A, dates_range=sample_dates)
     
     
-        timeseries,normresidual = Inversion_A_LF(A, net['disp'].values, solver='LSMR', Weight=1, mu=mu, coef=1, ini=None, result_quality=None,
+        timeseries,normresidual = Inversion_A_LF(A, net[dispcol].values, solver='LSMR', Weight=1, mu=mu, coef=1, ini=None, result_quality=None,
                            verbose=False)
         timeseries_cumulative = np.cumsum(timeseries) #build the cumulative time series bc LF design matrix solves for displacement at each time step
         timeseries_cumulative = np.insert(timeseries_cumulative, 0, 0, axis=0) #set first date to zero
@@ -411,9 +412,11 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
         
     else: 
         fig, ax1 = plt.subplots(1,1, figsize = (8, 6))
+        ax1.axhline(y=0, color='gray', linestyle = '--')
         
     if original_signal is not None: 
         timeseries = [pd.merge(ts, original_signal, on = 'date', how = 'left') for ts in timeseries]
+        ax1.xhline(y=0, color='gray', linestyle = '--')
         ax1.plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
         
     
@@ -427,7 +430,7 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
     ax1.set_title('Cumulative displacement time-series')
 
     if original_signal is not None: 
-        ax2.axhline(y=0, color='gray')
+        ax2.axhline(y=0, color='gray', linestyle = '--')
         for i in range(len(timeseries)): 
             ax2.plot(timeseries[i].date, timeseries[i].disp_true-timeseries[i].disp_inversion, color = colors[i], label = legend[i])
         ax2.set_title('Residual')
