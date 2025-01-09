@@ -101,7 +101,9 @@ def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality
     v = data
     D_regu = np.zeros(mu.shape[0])
     F_regu = np.multiply(coef, mu)
-    if Weight == 1: Weight = np.ones(v.shape[0]) #there is no weight, it corresponds to Ordinary Least Square
+    if isinstance(Weight, int): 
+        if Weight ==1: 
+            Weight = np.ones(v.shape[0]) #there is no weight, it corresponds to Ordinary Least Square
     if solver == 'LSMR':
         F = np.vstack([np.multiply(Weight[Weight != 0][:, np.newaxis], A[Weight != 0]), F_regu]).astype('float')
         D = np.hstack([np.multiply(Weight[Weight != 0], v[Weight != 0]), D_regu]).astype('float')
@@ -282,8 +284,11 @@ def run_inversion(net, dispcol = 'disp', weightcol = None, regu = False):
         print("Solving the inversion including a regularization term ...")
         mu = mu_regularisation(regu=1, A=A, dates_range=sample_dates)
     
-    
-        timeseries,normresidual = Inversion_A_LF(A, net[dispcol].values, solver='LSMR', Weight=1, mu=mu, coef=1, ini=None, result_quality=None,
+        if weightcol is not None:
+            Weight = net[weightcol].values
+        else: 
+            Weight = 1
+        timeseries,normresidual = Inversion_A_LF(A, net[dispcol].values, solver='LSMR', Weight=Weight, mu=mu, coef=1, ini=None, result_quality=None,
                            verbose=False)
         timeseries_cumulative = np.cumsum(timeseries) #build the cumulative time series bc LF design matrix solves for displacement at each time step
         timeseries_cumulative = np.insert(timeseries_cumulative, 0, 0, axis=0) #set first date to zero
