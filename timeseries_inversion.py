@@ -239,6 +239,8 @@ def run_inversion(net, dispcol = 'disp', weightcol = None, regu = False):
     '''
     
     num_pairs = len(net)
+    net = net.sort_values(['date0', 'date1']).reset_index(drop = True)
+
     print('Number of image pairs: %d'%num_pairs)
         
     if not regu: #classic inversion 
@@ -298,7 +300,41 @@ def run_inversion(net, dispcol = 'disp', weightcol = None, regu = False):
         
         return out
         
+def prep_inversion_parallel(net, verbose = False):
+    
+    num_pairs = len(net)
+    net = net.sort_values(['date0', 'date1']).reset_index(drop = True)
 
+    data = net[['date0','date1']].values
+    sample_dates = pd.concat([net.date0, net.date1]).unique()
+    sample_dates = np.sort(sample_dates)
+
+    dates_range = Construction_dates_range_np(data)
+    A = Construction_A_LF(data,dates_range)
+    nIslands = np.min(A.shape) - np.linalg.matrix_rank(A)
+    
+    if verbose: 
+        print('Number of image pairs: %d'%num_pairs)
+        print(f'Number of groups in network: {nIslands +1}')
+        print("Solving the inversion including a regularization term ...")
+    mu = mu_regularisation(regu=1, A=A, dates_range=sample_dates)
+    
+    return A, mu, sample_dates
+    
+def run_inversion_parallel(disp, A, mu, sample_dates, weights = None):
+
+    if weights is not None:
+        Weight = weights
+    else: 
+        Weight = 1
+    timeseries,normresidual = Inversion_A_LF(A, disp, solver='LSMR', Weight=Weight, mu=mu, coef=1, ini=None, result_quality=None,
+                       verbose=False)
+    timeseries_cumulative = np.cumsum(timeseries) #build the cumulative time series bc LF design matrix solves for displacement at each time step
+    timeseries_cumulative = np.insert(timeseries_cumulative, 0, 0, axis=0) #set first date to zero
+    
+    out = timeseries_cumulative
+    
+    return out
     
 def min_max_scaler(x):
     '''
@@ -421,7 +457,7 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
         
     if original_signal is not None: 
         timeseries = [pd.merge(ts, original_signal, on = 'date', how = 'left') for ts in timeseries]
-        ax1.xhline(y=0, color='gray', linestyle = '--')
+        ax1.axhline(y=0, color='gray', linestyle = '--')
         ax1.plot(original_signal.date, original_signal.disp_true, label = "True displacement", color = "gray")
         
     
@@ -447,7 +483,7 @@ def plot_timeseries(timeseries, original_signal = None, legend = []):
     plt.show()
 
 
-def plot_network(network):
+def plot_network(network, outname = None):
     '''
     Plot network structure as arc diagramm. 
     Args: 
@@ -481,7 +517,7 @@ def plot_network(network):
     #mapping for colors
     colors = {group_id: colormap(i) for i, group_id in enumerate(network.group_id.unique())}
 
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, ax = plt.subplots(figsize=(10, 4))
 
     # plot nodes
     ax.scatter(list(numeric_dates.values()), [0] * len(numeric_dates), color='black')
@@ -498,12 +534,12 @@ def plot_network(network):
         ))
         
     # Create legend lines
-    legend = [Line2D([0], [0], color=colors[group_id], lw=1, label=f'Group {group_id}') for group_id in network.group_id.unique()]
-    ax.legend(handles=legend, loc = 2)
+    legend = [Line2D([0], [0], color=colors[group_id], lw=1, label=f'Group {group_id+1}') for group_id in network.group_id.unique()]
+    ax.legend(handles=legend, loc = 1)
 
     ax.set_yticks([]) #empty y axis
     ax.set_xticks(list(numeric_dates.values())) 
-    ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in all_dates], rotation=90) #overwrite x axis labels
+    ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in all_dates], rotation=90, size = 7) #overwrite x axis labels
     
     ax.set_ylim(-20, network.num_diff.max()/2 +20)
     
@@ -513,6 +549,9 @@ def plot_network(network):
     ax.spines['right'].set_visible(False)
 
     plt.tight_layout()
+    
+    if outname is not None:
+        plt.savefig(outname, dpi = 300)
     plt.show()
     
     
