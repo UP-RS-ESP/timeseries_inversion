@@ -13,7 +13,7 @@ from matplotlib.lines import Line2D
 import scipy.sparse as sp
 import scipy.sparse.linalg
 import networkx as nx
-
+import pvlib
 
 
 def mu_regularisation(regu:str, A:np.array, dates_range:np.array)->np.array:
@@ -103,7 +103,7 @@ def Inversion_A_LF(A, data, solver, Weight, mu, coef=1, ini=None, result_quality
     F_regu = np.multiply(coef, mu)
     if isinstance(Weight, int): 
         if Weight ==1: 
-            Weight = np.ones(v.shape[0]) #there is no weight, it corresponds to Ordinary Least Square
+            Weight = np.ones(v.shape[0]) #there is no weight, it corresponds to Ordinary Least Square        
     if solver == 'LSMR':
         F = np.vstack([np.multiply(Weight[Weight != 0][:, np.newaxis], A[Weight != 0]), F_regu]).astype('float')
         D = np.hstack([np.multiply(Weight[Weight != 0], v[Weight != 0]), D_regu]).astype('float')
@@ -311,9 +311,9 @@ def prep_inversion_parallel(net, verbose = False):
 
     dates_range = Construction_dates_range_np(data)
     A = Construction_A_LF(data,dates_range)
-    nIslands = np.min(A.shape) - np.linalg.matrix_rank(A)
     
     if verbose: 
+        nIslands = np.min(A.shape) - np.linalg.matrix_rank(A)
         print('Number of image pairs: %d'%num_pairs)
         print(f'Number of groups in network: {nIslands +1}')
         print("Solving the inversion including a regularization term ...")
@@ -555,3 +555,20 @@ def plot_network(network, outname = None):
     plt.show()
     
     
+def get_sun_pos(lon, lat, datetime):
+
+    
+    sun_az = pvlib.solarposition.get_solarposition(
+        time=datetime,
+        latitude=lat,
+        longitude=lon
+    )['azimuth'].values[0]
+    
+    sun_el = pvlib.solarposition.get_solarposition(
+        time=datetime,
+        latitude=lat,
+        longitude=lon
+    )['elevation'].values[0]
+    
+    
+    return(sun_az, sun_el)
