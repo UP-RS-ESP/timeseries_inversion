@@ -17,7 +17,7 @@ import rasterio
 from tqdm import tqdm
 import os
 from multiprocessing import Pool
-
+import math
 
 ##########################################################################################################################
 #preprocessing 
@@ -522,6 +522,7 @@ def inversion_tiled(network, band, cpu, ext = "", weights = None):
     with rasterio.open(output_path, "w", **profile) as dst:
         for i in range(len(sample_dates)):
             dst.write(full_result[i, :, :], i + 1)
+            
 
 def extract_stats_in_mask(file, mask):
     
@@ -812,3 +813,42 @@ def plot_network(network, outname = None):
         plt.savefig(outname, dpi = 300)
     plt.show()
     
+    
+def plot_timesteps(file, dates = None):
+    
+    '''Plots every timestep of the inversion result (raster). Provide filename and optionally list of sample dates.'''
+    with rasterio.open(file) as src: #read all bands into memory
+        inv = src.read()
+        
+    bands = inv.shape[0]
+    rows = 4
+    cols = math.ceil(bands/rows)
+    
+    vmax = np.nanpercentile(inv[bands-1,:,:], 99) #use 99th percentile of last timestamp as color lim
+    
+    fig, ax = plt.subplots(rows, cols, figsize=(3*cols, 3*cols), squeeze=False, constrained_layout=True)
+    
+    ax = ax.ravel()
+    
+    for i in range(bands):
+        im = ax[i].imshow(inv[i, :, :], vmin = -vmax, vmax = vmax, cmap = "coolwarm")
+        if dates is not None:
+            ax[i].set_title(dates[i])
+    
+    # remove empty panels
+    for j in range(bands, len(ax)):
+        ax[j].axis("off")
+    
+    cbar = fig.colorbar(
+    im,
+    ax=ax,
+    location="bottom",
+    shrink=0.8,
+    fraction=0.025,
+    pad=0.02)
+
+    cbar.set_label("Cumulative Displacement")
+    
+    plt.show()
+        
+        
