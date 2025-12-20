@@ -9,6 +9,7 @@ from datetime import datetime
 from itertools import combinations
 from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import scipy.sparse as sp
 import scipy.sparse.linalg
 import networkx as nx
@@ -18,7 +19,7 @@ from tqdm import tqdm
 import os
 from multiprocessing import Pool
 import math
-
+from scipy.optimize import curve_fit
 ##########################################################################################################################
 #preprocessing 
 
@@ -405,7 +406,7 @@ def run_inversion_parallel(disp, A, mu, sample_dates, weights = None):
     
     return out
 
-def process_window(args):
+def process_window_inversion(args):
     
     window, A, mu, sample_dates, network, band, weighted = args
 
@@ -490,7 +491,7 @@ def inversion_tiled(network, band, cpu, ext = "", weights = None):
 
     #run inversion for every tile
     with Pool(processes=cpu) as pool: 
-            results = list(tqdm(pool.imap(process_window, args), total=len(windows)))
+            results = list(tqdm(pool.imap(process_window_inversion, args), total=len(windows)))
             
     #reassemble results
     full_result = np.full((len(sample_dates), height, width), np.nan, dtype=np.float32)
@@ -548,7 +549,116 @@ def extract_stats_in_mask(file, mask):
 
 
 ##########################################################################################################################
-# seasonal bias mitigation 
+# seasonal bias estimation & mitigation 
+
+def sine_wave_fixed_freq(t, A, phi, C):
+    wavelength = 365.25
+    f = 1 / wavelength  #fixed frequency = 1 year
+    return A * np.sin(2 * np.pi * f * t + phi) + C # A = amplitude, t = time, phi = phase shift, c = vertical offset 
+
+def fit_sine_per_pixel(ts, sample_dates, daily_index):
+
+    if np.isnan(ts).all(): 
+        return np.array([np.nan, np.nan, np.nan])
+
+    #linearly interpolate displacement values for trend estimation (moving average)
+    s = pd.Series(ts, index=sample_dates)
+    si = s.reindex(daily_index).interpolate("linear").ffill().bfill()
+    trend_daily = si.rolling(window=396, center=True, min_periods=1).mean()
+
+    #get trend for original timestepd
+    trend_orig = trend_daily.reindex(sample_dates).interpolate("linear")
+    #detrend
+    detr = ts - trend_orig.to_numpy()
+    
+    #mask remaining nans
+    mask = ~np.isnan(detr)
+    if mask.sum() < 4:  # need at least 4 data points for stable sine fit
+        return np.array([np.nan, np.nan, np.nan])
+
+    detr_valid = detr[mask]
+    dates_valid = sample_dates[mask]
+
+    #fit sine
+    dsdt = (dates_valid - dates_valid[0]).days.to_numpy()
+    try:
+        popt, _ = curve_fit(
+            sine_wave_fixed_freq,
+            dsdt,
+            detr_valid,
+            p0=[1, 0, 0],
+            bounds=([0, -np.inf, -np.inf], [np.inf, np.inf, np.inf]), #ensure amplitude is positive
+            maxfev=2000)
+
+        A, phi, C = popt
+    except (RuntimeError):
+        A, phi, C = np.nan, np.nan, np.nan
+
+    return np.array([A, phi, C])
+
+    
+def process_window_sine_fit(args):
+    
+    window, sample_dates, file = args
+    daily_index = pd.date_range(sample_dates.min(), sample_dates.max(), freq="D")
+    with rasterio.open(file) as src:
+        chunk = src.read(window=window)
+        h, w  = chunk.shape[1:]
+
+    result = np.full((3, h, w), np.nan)
+    
+    for i in range(h):
+        for j in range(w):
+            ts = chunk[:, i, j]
+            result[:, i, j] = fit_sine_per_pixel(ts, sample_dates, daily_index)
+    
+    return result
+
+
+def fit_sine_tiled(file, sample_dates, cpu):
+
+    with rasterio.open(file) as src:
+        if not src.is_tiled:
+            print("Input is not tiled!")
+            #return
+        block_height, block_width = src.block_shapes[0] #take first band as reference
+        width, height = src.width, src.height
+        windows = [
+            rasterio.windows.Window(x, y, block_width, block_height)
+            for y in range(0, height, block_height)
+            for x in range(0, width, block_width)
+        ]
+        meta = src.meta.copy()
+    
+
+    fit_full = np.full((3, height, width), np.nan, dtype="float32") #store amp, phase and c
+    
+    if isinstance(sample_dates, np.ndarray): #need sample dates to be a datetime index
+        sample_dates = pd.to_datetime(sample_dates)
+        
+    args = [(window, sample_dates, file) for window in windows]
+
+    with Pool(processes=cpu) as pool: 
+            results = list(tqdm(pool.imap(process_window_sine_fit, args), total=len(windows)))
+
+
+    for window, result_block in zip(windows, results):
+        fit_full[:, window.row_off : window.row_off + window.height,
+                 window.col_off : window.col_off + window.width] = result_block
+        
+    #convert phase to degrees
+    fit_full[1,:,:] = np.degrees(np.mod(fit_full[1,:,:], 2 * np.pi))
+
+    #save
+    meta.update(
+        count       = 3,    
+        dtype       = "float32",
+        nodata      = np.nan,
+        driver      = "GTiff",
+        compress    = "deflate")
+    
+    with rasterio.open(file[:-4] + "_sine_fit.tif", "w", **meta) as dst:
+        dst.write(fit_full)  
 
 def get_sun_pos(lon, lat, datetime):
 
@@ -839,16 +949,34 @@ def plot_timesteps(file, dates = None):
     for j in range(bands, len(ax)):
         ax[j].axis("off")
     
-    cbar = fig.colorbar(
-    im,
-    ax=ax,
-    location="bottom",
-    shrink=0.8,
-    fraction=0.025,
-    pad=0.02)
+    cbar = fig.colorbar(im, ax=ax, location="bottom", shrink=0.8, fraction=0.025, pad=0.02)
 
     cbar.set_label("Cumulative Displacement")
     
     plt.show()
         
+def plot_sine_fit(file):
+    '''Plots the results of the per-pixel sine fit estimating the magnitude of seasonal biases.'''
+    
+    with rasterio.open(file) as src: 
+        amp = src.read(1)
+        phs = src.read(2)
+        c = src.read(3)
+    
+    fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+    
+    im0 = ax[0].imshow(amp, vmin=0, vmax=np.percentile(amp, 99), cmap="Reds")
+    im1 = ax[1].imshow(phs, vmin=0, vmax=360, cmap="hsv")
+    im2 = ax[2].imshow(c,   vmin=0, vmax=np.percentile(c, 99), cmap="Blues")
+    
+    titles = ["Amplitude", "Phase", "Vertical offset"]
+    ims = [im0, im1, im2]
+    
+    for a, im, title in zip(ax, ims, titles):
+        a.set_title(title)
+        divider = make_axes_locatable(a)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        fig.colorbar(im, cax=cax)
         
+    plt.tight_layout()
+    plt.show()
