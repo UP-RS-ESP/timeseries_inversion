@@ -6,12 +6,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from datetime import datetime
-from itertools import combinations
 from matplotlib.patches import Arc
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import scipy.sparse as sp
-import scipy.sparse.linalg
 import networkx as nx
 import pvlib
 import rasterio
@@ -20,6 +18,7 @@ import os
 from multiprocessing import Pool
 import math
 from scipy.optimize import curve_fit
+
 ##########################################################################################################################
 #preprocessing 
 
@@ -501,6 +500,7 @@ def inversion_tiled(network, band, cpu, ext = "", weights = None):
         h, w = result_block.shape[:2]
         full_result[:, row_off:row_off+h, col_off:col_off+w] = result_block.transpose(2, 0, 1)
     
+    
     with rasterio.open(files[0]) as src:
         profile = src.profile
     
@@ -556,10 +556,11 @@ def sine_wave_fixed_freq(t, A, phi, C):
     f = 1 / wavelength  #fixed frequency = 1 year
     return A * np.sin(2 * np.pi * f * t + phi) + C # A = amplitude, t = time, phi = phase shift, c = vertical offset 
 
-def fit_sine_per_pixel(ts, sample_dates, daily_index):
+def fit_sine_per_pixel(ts, sample_dates, daily_index, mode):
 
     if np.isnan(ts).all(): 
         return np.array([np.nan, np.nan, np.nan])
+ 
 
     #linearly interpolate displacement values for trend estimation (moving average)
     s = pd.Series(ts, index=sample_dates)
@@ -593,25 +594,71 @@ def fit_sine_per_pixel(ts, sample_dates, daily_index):
         A, phi, C = popt
     except (RuntimeError):
         A, phi, C = np.nan, np.nan, np.nan
+        
+    if mode == 'estimate':    
+        return np.array([A, phi, C])
+    
+    if mode == 'apply':
+        
+        sine_fit_valid = sine_wave_fixed_freq(dsdt, *popt)
+        sine_fit_full = np.full_like(detr, np.nan, dtype="float32")
+        sine_fit_full[mask] = sine_fit_valid
 
-    return np.array([A, phi, C])
+        out = (detr-sine_fit_full) + trend_orig
+        if not pd.isna(out.iloc[0]): #catch nan in the first layer which can be the case if scene did not cover the entire AOI
+            out = out - out.iloc[0] #set first value to 0 to conform with the original inverted ts.
+        
+        return out.to_numpy()
 
     
 def process_window_sine_fit(args):
     
-    window, sample_dates, file = args
+    window, sample_dates, file, mode = args
     daily_index = pd.date_range(sample_dates.min(), sample_dates.max(), freq="D")
     with rasterio.open(file) as src:
-        chunk = src.read(window=window)
-        h, w  = chunk.shape[1:]
+        data = src.read(window=window)
+        h, w  = data.shape[1:]
+        
+    if mode == 'estimate':
+        result = np.full((3, h, w), np.nan)
+    if mode == 'apply':
+        result = np.full((len(sample_dates), h, w), np.nan, dtype=np.float32)
 
-    result = np.full((3, h, w), np.nan)
+
+    for i in range(h):
+        for j in range(w):
+            ts = data[:, i, j]
+            result[:, i, j] = fit_sine_per_pixel(ts, sample_dates, daily_index, mode)
+
+    return result
+
+def process_window_existing_sine_fit(args):
+    
+    window, sample_dates, file, fit_file = args
+    
+    with rasterio.open(file) as src:
+        data = src.read(window=window)
+        h, w  = data.shape[1:]
+        
+    with rasterio.open(fit_file) as src:
+        fit = src.read(window=window)
+        #make sure to turn phase back to radians
+        fit[1, :, :] = np.deg2rad(fit[1, :, :])
+    
+    result = np.full((len(sample_dates), h, w), np.nan, dtype=np.float32)
+
+    dsdt = (sample_dates - sample_dates[0]).days.to_numpy()
+
     
     for i in range(h):
         for j in range(w):
-            ts = chunk[:, i, j]
-            result[:, i, j] = fit_sine_per_pixel(ts, sample_dates, daily_index)
-    
+            ts = data[:, i, j]
+            if not np.isnan(ts).all(): 
+                sine_fit = sine_wave_fixed_freq(dsdt, fit[0, i, j], fit[1, i, j], fit[2, i, j])
+                result[:, i, j] = ts-sine_fit
+                if not np.isnan(result[0, i, j]):
+                    result[:, i, j] -= result[0, i, j] #ensure first value is set to 0 after fit
+                
     return result
 
 
@@ -636,7 +683,7 @@ def fit_sine_tiled(file, sample_dates, cpu):
     if isinstance(sample_dates, np.ndarray): #need sample dates to be a datetime index
         sample_dates = pd.to_datetime(sample_dates)
         
-    args = [(window, sample_dates, file) for window in windows]
+    args = [(window, sample_dates, file, 'estimate') for window in windows]
 
     with Pool(processes=cpu) as pool: 
             results = list(tqdm(pool.imap(process_window_sine_fit, args), total=len(windows)))
@@ -659,6 +706,50 @@ def fit_sine_tiled(file, sample_dates, cpu):
     
     with rasterio.open(file[:-4] + "_sine_fit.tif", "w", **meta) as dst:
         dst.write(fit_full)  
+        
+
+def apply_sine_tiled(file, sample_dates, cpu, fit_file = None):
+
+    with rasterio.open(file) as src:
+        if not src.is_tiled:
+            print("Input is not tiled!")
+            #return
+        block_height, block_width = src.block_shapes[0] #take first band as reference
+        width, height = src.width, src.height
+        windows = [
+            rasterio.windows.Window(x, y, block_width, block_height)
+            for y in range(0, height, block_height)
+            for x in range(0, width, block_width)
+        ]
+        meta = src.meta.copy()
+    
+
+    full_result = np.full((len(sample_dates), height, width), np.nan, dtype=np.float32)
+    
+    if isinstance(sample_dates, np.ndarray): #need sample dates to be a datetime index
+        sample_dates = pd.to_datetime(sample_dates)
+    
+    if fit_file is None: #no pre-existing fit params provided
+        args = [(window, sample_dates, file, 'apply') for window in windows]
+        with Pool(processes=cpu) as pool: 
+                results = list(tqdm(pool.imap(process_window_sine_fit, args), total=len(windows)))
+    else: #sine fit parameters were already estimated
+        args = [(window, sample_dates, file, fit_file) for window in windows]
+        with Pool(processes=cpu) as pool: 
+                results = list(tqdm(pool.imap(process_window_existing_sine_fit, args), total=len(windows)))
+
+    for window, result_block in zip(windows, results):
+        full_result[:, window.row_off : window.row_off + window.height,
+                 window.col_off : window.col_off + window.width] = result_block
+        
+    #save
+    meta.update(
+        nodata      = np.nan,
+        compress    = "deflate")
+    
+    with rasterio.open(file[:-4] + "_sine_corrected.tif", "w", **meta) as dst:
+        dst.write(full_result)  
+            
 
 def get_sun_pos(lon, lat, datetime):
 
@@ -678,113 +769,6 @@ def get_sun_pos(lon, lat, datetime):
     
     return(sun_az, sun_el)
 
-##########################################################################################################################
-
-# experiments with synthetic networks and displacement signals
-    
-def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
-    '''
-    Find the displacement that should have taken place between two dates according to the given reference signal.
-    Args: 
-        row: row of a pandas dataframe for which the displacement shall be estimated. 
-        signal: pandas dataframe containing the reference displacement signal based on which pairwise measurements will be estimated. 
-        datecol: string indicating the name of the column in the signal df containing the dates. Default = date
-        dispcol: string indicating the name of the column in the signal df containing the reference displacement. Default = disp. 
-    Returns: 
-        d_soll: displacement value according to provided reference signal. 
-    '''
-    
-    dp0 = signal[signal[datecol] == row.date0]
-    dp1 = signal[signal[datecol] == row.date1]
-    
-    if (len(dp0) > 0) and (len(dp1) > 0):
-        d_soll = (dp1[dispcol].iloc[0] - dp0[dispcol].iloc[0])
-    else: 
-        d_soll =  np.nan
-        
-    return d_soll
-
-    
-def min_max_scaler(x):
-    '''
-    Scales the values in the given input array or pd.Series between 0 and 1.
-    '''
-    return (x-np.nanmin(x))/(np.nanmax(x)-np.nanmin(x))
-
-
-def create_disconnected_groups(nr_groups, dates, overlap = 0):
-    '''
-    Turns given dates into a network with disconnected groups. 
-    Args: 
-        nr_groups: integer number specifying number of groups to be created.
-        dates: pd Datetime index or array of dates in network. 
-        overlap: integer number indicating the temporal overlap between groups in units of timesteps. 
-        By default, there will be no temporal overlap, i.e. overlap = 0. 
-    Returns: 
-        df: pandas dataframe with date pairs and corresponding group_id.
-    '''
-    
-    dates = np.array(dates)
-    cut = int(len(dates)/nr_groups)
-    
-    if int(cut/2) < overlap:
-        print(f"Overlap cannot be greater that group size. Please choose a value <= {int(cut/2) < overlap}!")
-        return
-    
-    gids = []
-    for g in range(nr_groups):
-        gids = gids + [g]*(cut-overlap*2)  + [g+1]*overlap + [g]*overlap
-        
-    if len(gids) < len(dates): #add not fitting dates to last group
-        gids = gids + [g]*(len(dates)-len(gids))
-    
-    #erase any higher numbers than nr_groups
-    
-    gids = np.array(gids)
-    gids[gids >= nr_groups] = g
-    
-    #now make image pairs
-    date_combinations = []
-    group_ids = []
-    for g in range(nr_groups):
-        gcombinations = list(combinations(dates[gids == g], 2))
-        date_combinations = date_combinations + gcombinations
-        group_ids += [g] * len(gcombinations)
-        
-    df = pd.DataFrame(date_combinations, columns=['date0', 'date1'])
-    df["group_id"] = group_ids
-
-    return df
-
-
-def create_random_groups(nr_groups, dates, seed = 123):
-    '''
-    Randomly assigns acquisitions to a given number of groups and only establishes connections between them. 
-    Args: 
-        nr_groups: integer number specifying number of groups to be created.
-        dates: pd Datetime index or array of dates in network. 
-        seed: seed for random group assignment (optional).
-    Returns: 
-        df: pandas dataframe with date pairs and corresponding group_id.
-
-    '''
-    np.random.seed(seed)
-    dates = np.array(dates)
-    gids = np.random.randint(nr_groups, size = len(dates))
-    
-    #now make image pairs
-    date_combinations = []
-    group_ids = []
-
-    for g in range(nr_groups):
-        gcombinations = list(combinations(dates[gids == g], 2))
-        date_combinations = date_combinations + gcombinations
-        group_ids += [g] * len(gcombinations)
-        
-    df = pd.DataFrame(date_combinations, columns=['date0', 'date1'])
-    df["group_id"] = group_ids
-    
-    return df
 
 ##########################################################################################################################
 # visualization
