@@ -366,6 +366,28 @@ def run_inversion(net, dispcol = 'disp', weightcol = None, regu = False):
         
         return out
 
+def find_dsoll(row, signal, datecol = 'date', dispcol = 'disp'):
+
+
+    '''
+    Find the displacement that should have taken place between two dates according to the given reference signal.
+    '''
+
+
+    dp0 = signal[signal[datecol] == row.date0]
+    dp1 = signal[signal[datecol] == row.date1]
+
+
+    if (len(dp0) > 0) and (len(dp1) > 0):
+
+        d_soll = (dp1[dispcol].iloc[0] - dp0[dispcol].iloc[0])
+
+
+    else: 
+
+        d_soll =  np.nan
+
+    return d_soll
 #############################################################################################################################
 # parallelize inversion to speed up raster processing
     
@@ -540,8 +562,8 @@ def extract_stats_in_mask(file, mask):
     selected_pixels = inv_reshaped[:, m_selected.flatten()] 
 
     stats = pd.DataFrame({"median":np.nanmedian(selected_pixels, axis=1),
-                          "p25":np.nanpercentile(selected_pixels, 0.25, axis=1),
-                          "p75":np.nanpercentile(selected_pixels, 0.75, axis=1), 
+                          "p25":np.nanpercentile(selected_pixels, 25, axis=1),
+                          "p75":np.nanpercentile(selected_pixels, 75, axis=1), 
                           "mean":np.nanmean(selected_pixels, axis=1),
                           "std":np.nanstd(selected_pixels, axis=1)})
     return stats
@@ -871,7 +893,7 @@ def plot_network(network, outname = None):
     colormap = cm.get_cmap('tab10')
     colors = {group_id: colormap(i) for i, group_id in enumerate(network.group_id.unique())}
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(10, 5))
 
     # plot nodes
     ax.scatter(list(numeric_dates.values()), [0] * len(numeric_dates), color='black')
@@ -888,8 +910,12 @@ def plot_network(network, outname = None):
         ))
         
     legend = [Line2D([0], [0], color=colors[group_id], lw=1, label=f'Group {group_id+1}') for group_id in network.group_id.unique()]
-    ax.legend(handles=legend, loc = 1)
-
+    #ax.legend(handles=legend, loc = 1)
+    ax.legend(handles = legend,
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.4),
+        ncol=6
+    )
     ax.set_yticks([]) #empty y axis
     ax.set_xticks(list(numeric_dates.values())) 
     ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in all_dates], rotation=90, size = 7) #overwrite x axis labels
