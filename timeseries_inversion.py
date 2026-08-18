@@ -39,7 +39,6 @@ def pre_process_for_inversion(files, blocksize = 256, pix_to_m = True, medshift 
         
         df = pd.DataFrame(size_info)
         df = df.sort_values(by=["height", "width"], ascending=[False, False]) #find max size for reference
-        #TODO: select max, pad with nan
     
     for file in files: 
         if not os.path.isfile(file):
