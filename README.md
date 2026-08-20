@@ -1,4 +1,4 @@
-# Improved reconstruction of surface displacements through time-series inversion and seasonal bias correction
+# Surface Displacement Reconstruction via Time-Series Inversion and Seasonal Bias Mitigation
 
 This repository contains scripts and examples for reconstructing a displacement signal from a network of pairwise displacement measurements through time-series inversion. Temporal inversion is part of the processing chain for deriving a continuous time series from satellite-based measurements of displacements over landslides, glaciers, dunes or other Earth-surface processes. Prerequisite are several temporally overlapping displacement fields obtained from image cross-correlation. The inversion process returns a multi-band raster with the cumulative displacement estimated at each time step. In addition, this repository provides functionalities to correct for seasonal biases which are common in cross-season image pairs (different illumination) of mountainous terrain and presents a challenge for the identification of seasonally driven displacement.
 
@@ -18,4 +18,4 @@ conda activate ts_inversion
 
 This repository is associated with:
 
-Mueting, A., Charrier, L., and Bookhagen, B.: Challenges in reconstructing seasonally driven landslide motion from optical satellite data: insights from the Del Medio catchment, NW Argentina (in review)
+Mueting, A., Charrier, L., and Bookhagen, B.: Challenges in reconstructing seasonally driven landslide motion from optical satellite data: insights from the Del Medio catchment, NW Argentina, EGUsphere (preprint), [https://doi.org/10.5194/egusphere-2025-6445](https://doi.org/10.5194/egusphere-2025-64459), 2026. 
