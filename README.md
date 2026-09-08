@@ -19,3 +19,5 @@ conda activate ts_inversion
 This repository is associated with:
 
 Mueting, A., Charrier, L., and Bookhagen, B.: Challenges in reconstructing seasonally driven landslide motion from optical satellite data: insights from the Del Medio catchment, NW Argentina, EGUsphere (preprint), [https://doi.org/10.5194/egusphere-2025-6445](https://doi.org/10.5194/egusphere-2025-64459), 2026. 
+
+For the postprocessing of surface velocities estimated from remote sensing images based on the temporal closure principle, please also refer to [TICOI](https://github.com/ticoi/ticoi). 
